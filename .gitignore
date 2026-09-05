@@ -24,3 +24,5 @@ update_real_issues.py
 # OS
 .DS_Store
 Thumbs.db
+
+.vercel
