@@ -60,7 +60,7 @@ export interface CommunityProgress {
 
 export interface AnalyzeResult {
   issues: Issue[];
-  /** 'gemini' 또는 'heuristic' */
+  /** 'claude' 또는 'heuristic' */
   analysis_method: string;
   /** 휴리스틱으로 내려간 경우 그 사유 */
   analysis_note: string;

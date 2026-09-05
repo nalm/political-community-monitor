@@ -70,4 +70,4 @@ COMMUNITIES = {
     }
 }
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY", "")
+# Claude API 자격 증명은 anthropic SDK 가 환경(ANTHROPIC_API_KEY 등)에서 직접 읽는다.
