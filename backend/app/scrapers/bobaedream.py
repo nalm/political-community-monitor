@@ -1,8 +1,7 @@
 import re
 import httpx
-from bs4 import BeautifulSoup
 from typing import List, Dict, Any
-from .base import BaseScraper
+from .base import BaseScraper, ScrapeError
 
 
 class BobaedreamScraper(BaseScraper):
@@ -17,9 +16,12 @@ class BobaedreamScraper(BaseScraper):
             page = 1
             while len(posts) < limit and page <= 3:
                 url = f"{self.list_url}&page={page}" if page > 1 else self.list_url
-                r = await client.get(url, headers=self.get_headers())
-                r.raise_for_status()
-                soup = BeautifulSoup(r.text, "html.parser")
+                try:
+                    soup = await self.fetch_soup(client, url)
+                except ScrapeError:
+                    if posts:
+                        break
+                    raise
 
                 for tr in soup.select("table.clistTable tbody tr, tbody tr"):
                     # 상단 고정 베스트글은 tr class="best" 로 표시된다. 최신글이 아니므로 제외.

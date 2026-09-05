@@ -1,7 +1,11 @@
 import abc
+import asyncio
 import random
 import re
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List
+
+import httpx
+from bs4 import BeautifulSoup
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -25,9 +29,41 @@ NOTICE_CLASS_TOKENS = frozenset({
 })
 
 
+#  일시적인 응답으로 보고 재시도할 상태 코드
+_RETRYABLE_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+
+class ScrapeError(Exception):
+    """페이지를 끝내 가져오지 못했을 때."""
+
+
 class BaseScraper(abc.ABC):
     def __init__(self, community_id: str):
         self.community_id = community_id
+
+    async def fetch_soup(self, client: httpx.AsyncClient, url: str,
+                         attempts: int = 3) -> BeautifulSoup:
+        """목록 페이지를 받아 파싱한다. 일시적 실패는 짧은 백오프로 재시도한다.
+
+        커뮤니티 서버는 연속 요청에 간헐적으로 429/503 을 돌려준다. 한 번의 실패로
+        커뮤니티 전체를 버리지 않도록 여기서 흡수한다.
+        """
+        last_reason = "unknown"
+        for i in range(attempts):
+            try:
+                r = await client.get(url, headers=self.get_headers())
+                if r.status_code == 200:
+                    return BeautifulSoup(r.text, "html.parser")
+                last_reason = f"HTTP {r.status_code}"
+                if r.status_code not in _RETRYABLE_STATUS:
+                    break  # 404·403 등은 재시도해도 달라지지 않는다
+            except (httpx.TimeoutException, httpx.TransportError) as e:
+                last_reason = type(e).__name__
+
+            if i < attempts - 1:
+                await asyncio.sleep(0.5 * (i + 1))
+
+        raise ScrapeError(f"{url} 요청 실패 ({last_reason})")
 
     def get_headers(self) -> Dict[str, str]:
         return {

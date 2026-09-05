@@ -1,7 +1,6 @@
 import httpx
-from bs4 import BeautifulSoup
 from typing import List, Dict, Any
-from .base import BaseScraper
+from .base import BaseScraper, ScrapeError
 
 
 class ItssaScraper(BaseScraper):
@@ -16,9 +15,14 @@ class ItssaScraper(BaseScraper):
             page = 1
             while len(posts) < limit and page <= 4:
                 url = f"{self.list_url}?page={page}" if page > 1 else self.list_url
-                r = await client.get(url, headers=self.get_headers())
-                r.raise_for_status()
-                soup = BeautifulSoup(r.text, "html.parser")
+                try:
+                    soup = await self.fetch_soup(client, url)
+                except ScrapeError:
+                    # 뒷 페이지 실패는 지금까지 모은 것으로 진행한다.
+                    # 첫 페이지부터 실패면 수집 자체가 안 된 것이므로 그대로 알린다.
+                    if posts:
+                        break
+                    raise
 
                 for tr in soup.select("table tbody tr, .list_table tbody tr, tr.ub-content"):
                     # 잇싸 공지 행의 class 는 'notice' 가 아니라 'lnu' 다.

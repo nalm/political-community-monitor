@@ -1,8 +1,7 @@
 import re
 import httpx
-from bs4 import BeautifulSoup
 from typing import List, Dict, Any
-from .base import BaseScraper
+from .base import BaseScraper, ScrapeError
 
 
 class DdanziScraper(BaseScraper):
@@ -17,9 +16,12 @@ class DdanziScraper(BaseScraper):
             page = 1
             while len(posts) < limit and page <= 4:
                 url = f"{self.list_url}&page={page}" if page > 1 else self.list_url
-                r = await client.get(url, headers=self.get_headers())
-                r.raise_for_status()
-                soup = BeautifulSoup(r.text, "html.parser")
+                try:
+                    soup = await self.fetch_soup(client, url)
+                except ScrapeError:
+                    if posts:
+                        break
+                    raise
 
                 # 상단 배너 영역은 class="bbn ...", 공지는 class="notice".
                 for tr in soup.select("table tbody tr"):
