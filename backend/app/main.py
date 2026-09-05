@@ -1,25 +1,22 @@
 import asyncio
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from pathlib import Path
+from typing import Optional
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pathlib import Path
-from typing import Dict, Any
 
+from . import jobs
 from .config import COMMUNITIES
-from .database import (
-    init_db,
-    get_all_issues_with_stances,
-    get_recent_posts_by_community
-)
+from .database import get_issues_by_run, get_posts_by_run, init_db
 from .scheduler import run_full_sync
 
 app = FastAPI(
     title="Political Community Monitor API",
-    description="대한민국 주요 시사·정치 커뮤니티(에펨코리아, 보배드림, 더쿠, 다모앙, 딴지일보, 잇싸 등) 반응 모니터링 시스템",
-    version="1.0.0"
+    description="시사·정치 커뮤니티(잇싸, 보배드림, 더쿠, 딴지일보) 여론 모니터링",
+    version="2.0.0",
 )
 
-# CORS 설정
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,45 +25,75 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 앱 시작 시 DB 초기화 및 초기 데이터 확인
+
 @app.on_event("startup")
 async def on_startup():
+    # DB 스키마만 준비한다. 수집은 사용자가 '새로고침' 을 눌렀을 때만 시작한다.
     init_db()
-    # 초기 데이터가 없으면 백그라운드로 1회 동기화
-    issues = get_all_issues_with_stances()
-    if not issues:
-        print("No issues found in DB. Triggering initial sync...")
-        asyncio.create_task(run_full_sync())
+
 
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "service": "political-community-monitor"}
 
+
 @app.get("/api/communities")
 def get_communities():
-    """모니터링 대상 커뮤니티 목록 및 메타데이터 반환"""
+    """모니터링 대상 커뮤니티 목록 및 메타데이터"""
     return list(COMMUNITIES.values())
 
-@app.get("/api/issues")
-def get_issues():
-    """정치 현안별 커뮤니티 반응 및 비교 분석 데이터 반환"""
-    issues = get_all_issues_with_stances()
-    return {"issues": issues, "total": len(issues)}
-
-@app.get("/api/community-feed")
-def get_community_feed(limit: int = 10):
-    """각 커뮤니티별 실시간 수집된 인기글과 인기 댓글 5개 반환"""
-    data = get_recent_posts_by_community(limit=limit)
-    return {"feed": data}
 
 @app.post("/api/sync")
-async def trigger_sync(background_tasks: BackgroundTasks):
-    """실시간 여론 수집 및 AI 분석 수동 실행 엔드포인트"""
-    background_tasks.add_task(run_full_sync)
+async def trigger_sync():
+    """지금 이 시각 기준으로 수집·분석을 시작하고 job_id 를 돌려준다."""
+    running = jobs.latest_job()
+    if running and running["phase"] in (jobs.PHASE_COLLECTING, jobs.PHASE_ANALYZING):
+        # 이미 돌고 있으면 새로 띄우지 않고 진행 중인 작업에 붙인다.
+        return {"job_id": running["job_id"], "already_running": True}
+
+    job = jobs.create_job(list(COMMUNITIES.keys()))
+    asyncio.create_task(run_full_sync(job["job_id"]))
+    return {"job_id": job["job_id"], "already_running": False}
+
+
+@app.get("/api/sync/{job_id}")
+def get_sync_status(job_id: str):
+    """수집·분석 진행 상황. 프론트가 폴링한다."""
+    job = jobs.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="해당 작업을 찾을 수 없습니다.")
+
     return {
-        "message": "수집 및 AI 분석 작업이 백그라운드에서 시작되었습니다.",
-        "status": "triggered"
+        "job_id": job["job_id"],
+        "run_id": job["run_id"],
+        "phase": job["phase"],
+        "started_at": job["started_at"],
+        "finished_at": job["finished_at"],
+        "error": job["error"],
+        "issue_count": job["issue_count"],
+        "total_posts": job["total_posts"],
+        "analysis_method": job.get("analysis_method"),
+        "analysis_note": job.get("analysis_note"),
+        "communities": [
+            {**entry, "name": COMMUNITIES[cid]["name"], "color": COMMUNITIES[cid]["color"]}
+            for cid, entry in job["communities"].items()
+            if cid in COMMUNITIES
+        ],
     }
+
+
+@app.get("/api/issues")
+def get_issues(run_id: Optional[str] = None):
+    """현안별 커뮤니티 반응 리포트. run_id 를 주면 그 실행 결과만 반환."""
+    issues = get_issues_by_run(run_id)
+    return {"issues": issues, "total": len(issues), "run_id": run_id}
+
+
+@app.get("/api/community-feed")
+def get_community_feed(run_id: str):
+    """해당 실행에서 수집된 커뮤니티별 게시글 원문 목록"""
+    return {"feed": get_posts_by_run(run_id)}
+
 
 # 프론트엔드 정적 빌드 서빙 (빌드된 경우)
 FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"

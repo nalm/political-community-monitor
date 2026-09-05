@@ -4,20 +4,19 @@ from .itssa import ItssaScraper
 from .ddanzi import DdanziScraper
 from .bobaedream import BobaedreamScraper
 from .theqoo import TheqooScraper
-from .fmkorea import FmkoreaScraper
-from .damoang import DamoangScraper
 
+# 에펨코리아/다모앙 스크레이퍼는 제거되었습니다. 사유는 config.COMMUNITIES 주석 참고.
 SCRAPERS: Dict[str, BaseScraper] = {
     "itssa": ItssaScraper(),
     "ddanzi": DdanziScraper(),
     "bobaedream": BobaedreamScraper(),
     "theqoo": TheqooScraper(),
-    "fmkorea": FmkoreaScraper(),
-    "damoang": DamoangScraper()
 }
+
 
 def get_all_scrapers() -> Dict[str, BaseScraper]:
     return SCRAPERS
+
 
 def get_scraper(community_id: str) -> BaseScraper:
     return SCRAPERS.get(community_id)

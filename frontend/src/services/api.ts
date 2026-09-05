@@ -1,27 +1,41 @@
-import { Community, Issue, Post } from '../types';
+import { Community, Issue, Post, SyncJob } from '../types';
 
 const API_BASE = '/api';
 
-export async function getCommunities(): Promise<Community[]> {
-  const res = await fetch(`${API_BASE}/communities`);
-  if (!res.ok) throw new Error('커뮤니티 목록을 불러오지 못했습니다.');
+async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, init);
+  if (!res.ok) {
+    let detail = '';
+    try {
+      detail = (await res.json())?.detail ?? '';
+    } catch {
+      /* 본문이 JSON 이 아니면 무시 */
+    }
+    throw new Error(detail || `요청에 실패했습니다. (HTTP ${res.status})`);
+  }
   return res.json();
 }
 
-export async function getIssues(): Promise<{ issues: Issue[]; total: number }> {
-  const res = await fetch(`${API_BASE}/issues`);
-  if (!res.ok) throw new Error('이슈 분석 데이터를 불러오지 못했습니다.');
-  return res.json();
+export function getCommunities(): Promise<Community[]> {
+  return getJson<Community[]>('/communities');
 }
 
-export async function getCommunityFeed(limit: number = 10): Promise<{ feed: Record<string, Post[]> }> {
-  const res = await fetch(`${API_BASE}/community-feed?limit=${limit}`);
-  if (!res.ok) throw new Error('커뮤니티 피드를 불러오지 못했습니다.');
-  return res.json();
+/** 지금 이 시각 기준으로 수집을 시작하고 job_id 를 받는다. */
+export function startSync(): Promise<{ job_id: string; already_running: boolean }> {
+  return getJson('/sync', { method: 'POST' });
 }
 
-export async function triggerSync(): Promise<{ message: string; status: string }> {
-  const res = await fetch(`${API_BASE}/sync`, { method: 'POST' });
-  if (!res.ok) throw new Error('수집 요청에 실패했습니다.');
-  return res.json();
+/** 수집·분석 진행 상황을 조회한다. */
+export function getSyncStatus(jobId: string): Promise<SyncJob> {
+  return getJson<SyncJob>(`/sync/${jobId}`);
+}
+
+/** 해당 실행의 분석 리포트를 가져온다. */
+export function getIssues(runId: string): Promise<{ issues: Issue[]; total: number }> {
+  return getJson(`/issues?run_id=${encodeURIComponent(runId)}`);
+}
+
+/** 해당 실행에서 수집된 원문 게시글 목록을 가져온다. */
+export function getCommunityFeed(runId: string): Promise<{ feed: Record<string, Post[]> }> {
+  return getJson(`/community-feed?run_id=${encodeURIComponent(runId)}`);
 }

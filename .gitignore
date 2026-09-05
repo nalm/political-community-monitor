@@ -14,6 +14,10 @@ env/
 test_*.py
 update_real_issues.py
 
+# 수집된 게시물 DB (스키마는 실행 시 자동 생성된다).
+# 커뮤니티 게시물 원문과 작성자 닉네임이 담기므로 저장소에 올리지 않는다.
+backend/data/*.db
+
 # Env
 .env
 .env.local

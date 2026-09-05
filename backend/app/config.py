@@ -1,23 +1,28 @@
 import os
-import shutil
 from pathlib import Path
-from typing import Dict, Any
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 if os.environ.get("VERCEL"):
+    # 서버리스에서는 /tmp 만 쓸 수 있고 인스턴스마다 별개다.
+    # 스키마는 startup 에서 생성하며, 수집 데이터는 인스턴스 수명만큼만 유지된다.
     DATA_DIR = Path("/tmp/data")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     DB_PATH = DATA_DIR / "monitor.db"
-    bundled_db = BASE_DIR / "data" / "monitor.db"
-    if bundled_db.exists() and not DB_PATH.exists():
-        shutil.copyfile(bundled_db, DB_PATH)
 else:
     DATA_DIR = BASE_DIR / "data"
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     DB_PATH = DATA_DIR / "monitor.db"
 
-# 사용자가 지정한 6대 커뮤니티 인기 게시판 URL
+# 모니터링 대상 커뮤니티 인기 게시판 URL
+#
+# 에펨코리아와 다모앙은 수집 대상에서 제외되었습니다.
+#   - 에펨코리아: robots.txt가 `User-agent: *` 에 대해 `Disallow: /` 이며
+#     허용 경로는 /$, /best, /best2, /humor 뿐입니다. /politics 는 모든 봇에
+#     명시적으로 금지되어 있고, 자체 "보안 시스템"이 HTTP 430 으로 차단합니다.
+#   - 다모앙: robots.txt 는 허용하지만 Cloudflare Turnstile 챌린지가 걸려 있고,
+#     공식 RSS(/rss)에는 공감게시판(/empathy) 글이 포함되지 않습니다.
+# 두 사이트 모두 명시적인 봇 차단 의사를 밝혔으므로 우회하지 않습니다.
 COMMUNITIES = {
     "itssa": {
         "id": "itssa",
@@ -29,17 +34,6 @@ COMMUNITIES = {
         "demographic": "3050 고관여 진보",
         "color": "#8B5CF6",
         "tag": "진보 / 잇싸"
-    },
-    "fmkorea": {
-        "id": "fmkorea",
-        "name": "에펨코리아",
-        "section": "정치/시사 인기글",
-        "base_url": "https://www.fmkorea.com",
-        "list_url": "https://www.fmkorea.com/index.php?mid=politics&sort_index=pop&order_type=desc",
-        "bias": "보수·개혁신당 우호",
-        "demographic": "2030 남성",
-        "color": "#3B82F6",
-        "tag": "2030 남성 / 보수"
     },
     "bobaedream": {
         "id": "bobaedream",
@@ -62,17 +56,6 @@ COMMUNITIES = {
         "demographic": "2030 여성",
         "color": "#EC4899",
         "tag": "2030 여성 / 중도진보"
-    },
-    "damoang": {
-        "id": "damoang",
-        "name": "다모앙",
-        "section": "공감게시판",
-        "base_url": "https://damoang.net",
-        "list_url": "https://damoang.net/empathy",
-        "bias": "진보·민주당 우호",
-        "demographic": "4050 IT/직장인",
-        "color": "#6366F1",
-        "tag": "4050 세대 / 진보"
     },
     "ddanzi": {
         "id": "ddanzi",

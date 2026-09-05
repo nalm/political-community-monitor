@@ -26,10 +26,10 @@ export const CommunityFeedModal: React.FC<Props> = ({ isOpen, onClose, communiti
           <div>
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
               <Flame className="w-5 h-5 text-rose-500" />
-              커뮤니티별 인기 게시판 최근 30개 게시물 탐색기
+              수집된 원문 게시물
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              각 커뮤니티의 지정된 인기 게시판에서 크롤링된 실시간 30개 인기글 목록입니다.
+              이번 새로고침에서 각 커뮤니티 인기 게시판의 공지를 제외하고 수집한 최신 게시물입니다.
             </p>
           </div>
           <button

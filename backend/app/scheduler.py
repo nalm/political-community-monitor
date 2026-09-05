@@ -1,54 +1,82 @@
 import asyncio
 from datetime import datetime
-from typing import Dict, Any
-from .scrapers import get_all_scrapers
-from .database import (
-    save_posts_batch,
-    get_recent_posts_by_community,
-    save_issue_and_stances,
-    init_db
-)
+from typing import Any, Dict
+
+from . import jobs
 from .analyzer.llm_client import LLMAnalyzer
+from .database import get_posts_by_run, init_db, save_issue_and_stances, save_posts_batch
+from .scrapers import get_all_scrapers
 
 analyzer = LLMAnalyzer()
 
-async def run_full_sync() -> Dict[str, Any]:
-    """지정된 6대 커뮤니티 인기 게시판에서 최근 30개 게시물을 수집하고 LLM 여론 분석을 실행합니다."""
+POSTS_PER_COMMUNITY = 30
+
+
+async def _collect_one(job_id: str, run_id: str, comm_id: str, scraper) -> int:
+    """커뮤니티 하나를 수집한다. 실패해도 예외를 밖으로 던지지 않고 job 에 기록한다."""
+    jobs.mark_community(job_id, comm_id, jobs.STATUS_COLLECTING)
+    try:
+        posts = await scraper.fetch_hot_posts(limit=POSTS_PER_COMMUNITY)
+        saved = save_posts_batch(posts, run_id)
+        jobs.mark_community(job_id, comm_id, jobs.STATUS_OK, count=saved)
+        print(f"[{comm_id}] {saved}개 수집 완료")
+        return saved
+    except Exception as e:
+        msg = f"{type(e).__name__}: {e}"
+        jobs.mark_community(job_id, comm_id, jobs.STATUS_ERROR, error=msg)
+        print(f"[{comm_id}] 수집 실패 - {msg}")
+        return 0
+
+
+async def run_full_sync(job_id: str) -> Dict[str, Any]:
+    """수집 → 분석 → 저장. 진행 상황은 jobs 모듈에 기록해 프론트가 폴링한다."""
+    job = jobs.get_job(job_id)
+    if job is None:
+        raise ValueError(f"unknown job_id: {job_id}")
+    run_id = job["run_id"]
+
     init_db()
     scrapers = get_all_scrapers()
-    print(f"[{datetime.now().isoformat()}] Starting 30 hot posts sync across {len(scrapers)} sources...")
+    print(f"[{datetime.now().isoformat()}] {len(scrapers)}개 커뮤니티 수집 시작 (run={run_id})")
 
-    posts_collected_stats = {}
-    
-    # 1. 각 커뮤니티별 인기 게시판 30개 게시물 수집
-    for comm_id, scraper in scrapers.items():
-        try:
-            hot_posts = await scraper.fetch_hot_posts(limit=30)
-            saved_count = save_posts_batch(hot_posts)
-            posts_collected_stats[comm_id] = saved_count
-            print(f"[{comm_id}] Successfully collected & saved {saved_count} hot posts.")
-        except Exception as e:
-            print(f"Error scraping {comm_id}: {e}")
-            posts_collected_stats[comm_id] = 0
+    # 1. 커뮤니티별 수집 (병렬)
+    jobs.set_phase(job_id, jobs.PHASE_COLLECTING)
+    await asyncio.gather(*(
+        _collect_one(job_id, run_id, comm_id, scraper)
+        for comm_id, scraper in scrapers.items()
+    ))
 
-    # 2. DB에서 최근 수집된 각 커뮤니티 30개 게시물 조회
-    all_recent_posts = get_recent_posts_by_community(limit=30)
-    
-    # 3. LLM 현안 분석 및 커뮤니티별 스탠스 도출
-    print("Running LLM analysis on 30 hot posts per community...")
-    analyzed_issues = await analyzer.analyze_issues_and_stances(all_recent_posts)
+    collected = get_posts_by_run(run_id)
+    if not any(collected.values()):
+        jobs.set_phase(job_id, jobs.PHASE_ERROR,
+                       error="모든 커뮤니티에서 게시글을 수집하지 못했습니다.")
+        return {"status": "error", "run_id": run_id}
 
-    # 4. 분석 결과 DB 저장
-    saved_issue_ids = []
-    for issue_item in analyzed_issues:
-        stances = issue_item.get("stances", [])
-        issue_id = save_issue_and_stances(issue_item, stances)
-        saved_issue_ids.append(issue_id)
+    # 2. 현안 분석
+    jobs.set_phase(job_id, jobs.PHASE_ANALYZING)
+    try:
+        analyzed, method, note = await analyzer.analyze_issues_and_stances(collected)
+    except Exception as e:
+        jobs.set_phase(job_id, jobs.PHASE_ERROR, error=f"분석 실패 - {type(e).__name__}: {e}")
+        return {"status": "error", "run_id": run_id}
 
-    print(f"Sync complete. Created/Updated {len(saved_issue_ids)} issues.")
+    if not analyzed:
+        jobs.set_phase(job_id, jobs.PHASE_ERROR,
+                       error="수집된 게시글에서 공통 현안을 추출하지 못했습니다.")
+        return {"status": "error", "run_id": run_id}
+
+    # 3. 저장
+    for issue_item in analyzed:
+        save_issue_and_stances(issue_item, issue_item.get("stances", []), run_id)
+
+    job["analysis_method"] = method
+    job["analysis_note"] = note
+    jobs.set_phase(job_id, jobs.PHASE_DONE, issue_count=len(analyzed))
+    print(f"동기화 완료: 현안 {len(analyzed)}건 (분석 엔진={method})")
+
     return {
         "status": "success",
-        "synced_at": datetime.now().isoformat(),
-        "stats": posts_collected_stats,
-        "issue_count": len(saved_issue_ids)
+        "run_id": run_id,
+        "issue_count": len(analyzed),
+        "analysis_method": method,
     }

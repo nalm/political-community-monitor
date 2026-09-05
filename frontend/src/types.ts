@@ -34,7 +34,7 @@ export interface Stance {
   color: string;
   tag: string;
   stance_label: string;
-  sentiment_score: number; // -1.0 to 1.0
+  sentiment_score: number; // -1.0 ~ 1.0
   summary_points: string[];
   keywords: string[];
   representative_posts: string[];
@@ -52,4 +52,33 @@ export interface Issue {
   created_at: string;
   updated_at: string;
   stances: Stance[];
+}
+
+/** 수집 작업의 단계 */
+export type SyncPhase = 'collecting' | 'analyzing' | 'done' | 'error';
+
+/** 커뮤니티 하나의 수집 상태 */
+export interface CommunityProgress {
+  community_id: string;
+  name: string;
+  color: string;
+  status: 'pending' | 'collecting' | 'ok' | 'error';
+  count: number;
+  error: string | null;
+}
+
+export interface SyncJob {
+  job_id: string;
+  run_id: string;
+  phase: SyncPhase;
+  started_at: string;
+  finished_at: string | null;
+  error: string | null;
+  issue_count: number;
+  total_posts: number;
+  /** 'gemini' 또는 'heuristic' */
+  analysis_method: string | null;
+  /** 휴리스틱으로 내려간 경우 그 사유 */
+  analysis_note: string | null;
+  communities: CommunityProgress[];
 }

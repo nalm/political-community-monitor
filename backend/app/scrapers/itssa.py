@@ -1,8 +1,8 @@
-import re
 import httpx
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any
 from .base import BaseScraper
+
 
 class ItssaScraper(BaseScraper):
     def __init__(self):
@@ -11,76 +11,49 @@ class ItssaScraper(BaseScraper):
         self.list_url = "https://itssa.co.kr/hot_politics"
 
     async def fetch_hot_posts(self, limit: int = 30) -> List[Dict[str, Any]]:
-        posts = []
-        try:
-            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-                page = 1
-                seen_urls = set()
-                while len(posts) < limit and page <= 4:
-                    url = f"{self.list_url}?page={page}" if page > 1 else self.list_url
-                    r = await client.get(url, headers=self.get_headers())
-                    if r.status_code != 200:
-                        break
-                    soup = BeautifulSoup(r.text, "html.parser")
-                    
-                    rows = soup.select("table tbody tr, .list_table tbody tr, tr.ub-content")
-                    for tr in rows:
-                        # 1. 공지/고정글 체크 (class 또는 번호 영역 확인)
-                        tr_class = str(tr.get("class", []))
-                        if "notice" in tr_class or "pinned" in tr_class:
-                            continue
-                        
-                        num_td = tr.select_one("td.num, .num, td:nth-child(1)")
-                        if num_td and ("공지" in num_td.get_text() or "notice" in num_td.get_text().lower()):
-                            continue
+        posts: List[Dict[str, Any]] = []
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            page = 1
+            while len(posts) < limit and page <= 4:
+                url = f"{self.list_url}?page={page}" if page > 1 else self.list_url
+                r = await client.get(url, headers=self.get_headers())
+                r.raise_for_status()
+                soup = BeautifulSoup(r.text, "html.parser")
 
-                        a = tr.select_one("td.title a, .title a, a")
-                        if not a:
-                            continue
-                        href = a.get("href", "")
-                        if not href or "#" in href:
-                            continue
-                        
-                        # 잇싸 hot_politics 게시판 글만 수집 (공지나 타 게시판 링크 배제)
-                        if "/hot_politics/" not in href:
-                            continue
-                            
-                        cid = href.split("?")[0].split("/")[-1]
-                        if not cid.isdigit() or href in seen_urls:
-                            continue
-                        
-                        title = self.clean_text(a.get_text())
-                        # 공지성 타이틀 필터
-                        if len(title) < 2 or "멤버십" in title or "리뉴얼" in title or "공지" in title:
-                            continue
+                for tr in soup.select("table tbody tr, .list_table tbody tr, tr.ub-content"):
+                    # 잇싸 공지 행의 class 는 'notice' 가 아니라 'lnu' 다.
+                    if self.is_notice_row(tr):
+                        continue
 
-                        seen_urls.add(href)
+                    a = tr.select_one("td.title a, .title a, a")
+                    if not a:
+                        continue
+                    href = a.get("href", "")
+                    # 다른 게시판(/notice, /weekly_east 등) 링크 배제
+                    if not href or "#" in href or "/hot_politics/" not in href:
+                        continue
 
-                        recom_el = tr.select_one("td.vote, .vote, .recom")
-                        vote_val = 30
-                        if recom_el:
-                            nums = re.findall(r'\d+', recom_el.get_text())
-                            if nums:
-                                vote_val = int(nums[0])
+                    cid = href.split("?")[0].split("/")[-1]
+                    if not cid.isdigit():
+                        continue
 
-                        author_el = tr.select_one("td.author, .author")
-                        author = self.clean_text(author_el.get_text()) if author_el else "잇싸 회원"
+                    title = self.clean_text(a.get_text())
+                    if len(title) < 2:
+                        continue
 
-                        full_url = self.base_url + href if not href.startswith("http") else href
-                        posts.append({
-                            "community_id": self.community_id,
-                            "original_id": cid,
-                            "title": title,
-                            "url": full_url,
-                            "author": author,
-                            "view_count": 2800,
-                            "vote_count": vote_val,
-                            "comment_count": 15
-                        })
-                        if len(posts) >= limit:
-                            break
-                    page += 1
-        except Exception as e:
-            print(f"[ItssaScraper] Error: {e}")
+                    author_el = tr.select_one("td.ldtu-nickname")
+                    # 목록 컬럼: ldtu-number / ldtu-title-wrap / ldtu-nickname
+                    #            / ldtu-date / lu-read(조회) / lu-vote(추천)
+                    posts.append({
+                        "community_id": self.community_id,
+                        "original_id": cid,
+                        "title": title,
+                        "url": href if href.startswith("http") else self.base_url + href,
+                        "author": self.clean_text(author_el.get_text()) if author_el else "잇싸 회원",
+                        "view_count": self.first_int(tr.select_one("td.lu-read")),
+                        "vote_count": self.first_int(tr.select_one("td.ldtu-vote")),
+                        "comment_count": self.first_int(tr.select_one("a.lu-comment")),
+                    })
+                page += 1
 
-        return posts[:limit]
+        return self.finalize(posts, limit)

@@ -13,18 +13,17 @@ export const IssueComparisonCard: React.FC<Props> = ({ issue }) => {
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
 
   const filteredStances = issue.stances.filter(s => {
-    if (selectedFilter === 'all') return true;
+    if (selectedFilter === 'mentioned') return s.post_count > 0;
     if (selectedFilter === 'progressive') {
-      return ['bobaedream', 'ddanzi', 'itssa', 'damoang'].includes(s.community_id);
-    }
-    if (selectedFilter === 'conservative') {
-      return ['fmkorea'].includes(s.community_id);
+      return ['bobaedream', 'ddanzi', 'itssa'].includes(s.community_id);
     }
     if (selectedFilter === 'neutral_female') {
-      return ['theqoo'].includes(s.community_id);
+      return s.community_id === 'theqoo';
     }
     return true;
   });
+
+  const mentionedCount = issue.stances.filter(s => s.post_count > 0).length;
 
   return (
     <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl backdrop-blur-sm transition-all hover:border-slate-600">
@@ -88,14 +87,14 @@ export const IssueComparisonCard: React.FC<Props> = ({ issue }) => {
                 전체 커뮤니티 ({issue.stances.length})
               </button>
               <button
-                onClick={() => setSelectedFilter('conservative')}
+                onClick={() => setSelectedFilter('mentioned')}
                 className={`px-3 py-1 rounded-full font-medium transition ${
-                  selectedFilter === 'conservative'
-                    ? 'bg-blue-600 text-white font-bold'
+                  selectedFilter === 'mentioned'
+                    ? 'bg-emerald-600 text-white font-bold'
                     : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                 }`}
               >
-                보수/2030남 (에펨코리아)
+                언급한 곳만 ({mentionedCount})
               </button>
               <button
                 onClick={() => setSelectedFilter('progressive')}
@@ -105,7 +104,7 @@ export const IssueComparisonCard: React.FC<Props> = ({ issue }) => {
                     : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                 }`}
               >
-                진보/팬덤 (잇싸·보배·딴지·다모앙)
+                진보/팬덤 (잇싸·보배·딴지)
               </button>
               <button
                 onClick={() => setSelectedFilter('neutral_female')}
@@ -148,7 +147,7 @@ export const IssueComparisonCard: React.FC<Props> = ({ issue }) => {
                   {/* 3-line Bullet Summaries */}
                   <div className="space-y-1.5 mb-4">
                     <div className="text-xs font-semibold text-slate-300 flex items-center gap-1 mb-1">
-                      <span>인기글 30선 핵심 기조:</span>
+                      <span>수집 게시물 {stance.post_count}개 기준:</span>
                     </div>
                     {stance.summary_points?.map((point, idx) => (
                       <div key={idx} className="flex items-start gap-1.5 text-xs text-slate-300 leading-relaxed">
