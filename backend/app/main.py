@@ -1,20 +1,31 @@
-import asyncio
-from pathlib import Path
-from typing import Optional
+"""수집·분석 API.
 
-from fastapi import FastAPI, HTTPException
+서버에 공유 상태를 두지 않는다. 커뮤니티 수집은 요청 하나당 한 곳씩 처리하고,
+분석은 클라이언트가 모아 보낸 게시물만 가지고 수행한다.
+
+이렇게 한 이유: Vercel 같은 서버리스에서는 요청마다 다른 인스턴스로 갈 수 있어
+프로세스 메모리에 담은 작업 상태나 /tmp 의 SQLite 를 다음 요청에서 다시 읽을 수 없다.
+진행 상황 표시도 클라이언트가 4개 요청의 완료 여부로 직접 판단하므로 폴링이 필요 없다.
+"""
+
+from pathlib import Path
+from typing import Any, Dict, List
+
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
-from . import jobs
+from .analyzer.llm_client import LLMAnalyzer
 from .config import COMMUNITIES
-from .database import get_issues_by_run, get_posts_by_run, init_db
-from .scheduler import run_full_sync
+from .scrapers import get_scraper
+
+POSTS_PER_COMMUNITY = 30
 
 app = FastAPI(
     title="Political Community Monitor API",
     description="시사·정치 커뮤니티(잇싸, 보배드림, 더쿠, 딴지일보) 여론 모니터링",
-    version="2.0.0",
+    version="3.0.0",
 )
 
 app.add_middleware(
@@ -25,11 +36,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+analyzer = LLMAnalyzer()
 
-@app.on_event("startup")
-async def on_startup():
-    # DB 스키마만 준비한다. 수집은 사용자가 '새로고침' 을 눌렀을 때만 시작한다.
-    init_db()
+
+class PostIn(BaseModel):
+    """분석 요청으로 되돌아오는 게시물. 과도한 입력을 막기 위해 길이를 제한한다."""
+    community_id: str = Field(max_length=32)
+    title: str = Field(max_length=300)
+    url: str = Field(default="", max_length=500)
+    author: str = Field(default="", max_length=100)
+    view_count: int = 0
+    vote_count: int = 0
+    comment_count: int = 0
+
+
+class AnalyzeRequest(BaseModel):
+    posts_by_community: Dict[str, List[PostIn]]
 
 
 @app.get("/api/health")
@@ -43,56 +65,62 @@ def get_communities():
     return list(COMMUNITIES.values())
 
 
-@app.post("/api/sync")
-async def trigger_sync():
-    """지금 이 시각 기준으로 수집·분석을 시작하고 job_id 를 돌려준다."""
-    running = jobs.latest_job()
-    if running and running["phase"] in (jobs.PHASE_COLLECTING, jobs.PHASE_ANALYZING):
-        # 이미 돌고 있으면 새로 띄우지 않고 진행 중인 작업에 붙인다.
-        return {"job_id": running["job_id"], "already_running": True}
+@app.get("/api/collect")
+async def collect(community: str = Query(..., description="커뮤니티 id")):
+    """커뮤니티 한 곳의 인기 게시판에서 공지를 제외한 최신 게시물을 수집한다.
 
-    job = jobs.create_job(list(COMMUNITIES.keys()))
-    asyncio.create_task(run_full_sync(job["job_id"]))
-    return {"job_id": job["job_id"], "already_running": False}
+    클라이언트가 커뮤니티마다 따로 호출하므로, 한 곳이 실패해도 나머지는 그대로 진행된다.
+    """
+    if community not in COMMUNITIES:
+        raise HTTPException(status_code=404, detail=f"알 수 없는 커뮤니티: {community}")
 
+    scraper = get_scraper(community)
+    try:
+        posts = await scraper.fetch_hot_posts(limit=POSTS_PER_COMMUNITY)
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"{COMMUNITIES[community]['name']} 수집 실패 - {type(e).__name__}: {e}",
+        )
 
-@app.get("/api/sync/{job_id}")
-def get_sync_status(job_id: str):
-    """수집·분석 진행 상황. 프론트가 폴링한다."""
-    job = jobs.get_job(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="해당 작업을 찾을 수 없습니다.")
+    if not posts:
+        raise HTTPException(
+            status_code=502,
+            detail=f"{COMMUNITIES[community]['name']} 에서 게시물을 찾지 못했습니다.",
+        )
 
-    return {
-        "job_id": job["job_id"],
-        "run_id": job["run_id"],
-        "phase": job["phase"],
-        "started_at": job["started_at"],
-        "finished_at": job["finished_at"],
-        "error": job["error"],
-        "issue_count": job["issue_count"],
-        "total_posts": job["total_posts"],
-        "analysis_method": job.get("analysis_method"),
-        "analysis_note": job.get("analysis_note"),
-        "communities": [
-            {**entry, "name": COMMUNITIES[cid]["name"], "color": COMMUNITIES[cid]["color"]}
-            for cid, entry in job["communities"].items()
-            if cid in COMMUNITIES
-        ],
-    }
+    return {"community_id": community, "count": len(posts), "posts": posts}
 
 
-@app.get("/api/issues")
-def get_issues(run_id: Optional[str] = None):
-    """현안별 커뮤니티 반응 리포트. run_id 를 주면 그 실행 결과만 반환."""
-    issues = get_issues_by_run(run_id)
-    return {"issues": issues, "total": len(issues), "run_id": run_id}
+@app.post("/api/analyze")
+async def analyze(req: AnalyzeRequest):
+    """수집된 게시물에서 현안을 추출하고 커뮤니티별 스탠스를 만든다."""
+    posts_by_community: Dict[str, List[Dict[str, Any]]] = {}
+    for comm_id, posts in req.posts_by_community.items():
+        if comm_id not in COMMUNITIES:
+            continue
+        posts_by_community[comm_id] = [p.model_dump() for p in posts[:POSTS_PER_COMMUNITY]]
 
+    if not any(posts_by_community.values()):
+        raise HTTPException(status_code=400, detail="분석할 게시물이 없습니다.")
 
-@app.get("/api/community-feed")
-def get_community_feed(run_id: str):
-    """해당 실행에서 수집된 커뮤니티별 게시글 원문 목록"""
-    return {"feed": get_posts_by_run(run_id)}
+    issues, method, note = await analyzer.analyze_issues_and_stances(posts_by_community)
+    if not issues:
+        raise HTTPException(
+            status_code=422, detail="수집된 게시물에서 공통 현안을 추출하지 못했습니다."
+        )
+
+    # 커뮤니티 메타데이터(이름·색상·성향)를 스탠스에 붙여 프론트가 바로 쓰게 한다.
+    for issue in issues:
+        for stance in issue.get("stances", []):
+            meta = COMMUNITIES.get(stance.get("community_id"), {})
+            stance["community_name"] = meta.get("name", stance.get("community_id"))
+            stance["bias"] = meta.get("bias", "")
+            stance["demographic"] = meta.get("demographic", "")
+            stance["color"] = meta.get("color", "#64748B")
+            stance["tag"] = meta.get("tag", "")
+
+    return {"issues": issues, "analysis_method": method, "analysis_note": note}
 
 
 # 프론트엔드 정적 빌드 서빙 (빌드된 경우)

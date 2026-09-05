@@ -1,21 +1,23 @@
 import React from 'react';
-import { SyncJob } from '../types';
+import { CommunityProgress, Phase } from '../types';
 import { Check, Loader2, AlertTriangle, Circle, Sparkles } from 'lucide-react';
 
 interface Props {
-  job: SyncJob;
+  phase: Phase;
+  progress: CommunityProgress[];
+  totalPosts: number;
 }
 
-const STATUS_TEXT: Record<string, string> = {
+const STATUS_TEXT: Record<CommunityProgress['status'], string> = {
   pending: '대기 중',
   collecting: '수집 중',
   ok: '수집 완료',
   error: '실패',
 };
 
-export const SyncProgress: React.FC<Props> = ({ job }) => {
-  const isAnalyzing = job.phase === 'analyzing';
-  const done = job.communities.filter((c) => c.status === 'ok' || c.status === 'error').length;
+export const SyncProgress: React.FC<Props> = ({ phase, progress, totalPosts }) => {
+  const isAnalyzing = phase === 'analyzing';
+  const done = progress.filter((c) => c.status === 'ok' || c.status === 'error').length;
 
   return (
     <div className="max-w-2xl mx-auto py-16 space-y-8">
@@ -26,21 +28,23 @@ export const SyncProgress: React.FC<Props> = ({ job }) => {
         </h2>
         <p className="text-sm text-slate-400">
           {isAnalyzing
-            ? `수집된 ${job.total_posts}개 게시물에서 핵심 현안을 뽑고 있습니다.`
-            : `${done}/${job.communities.length}개 커뮤니티 완료 · 현재까지 ${job.total_posts}개 수집`}
+            ? `수집된 ${totalPosts}개 게시물에서 핵심 현안을 뽑고 있습니다.`
+            : `${done}/${progress.length}개 커뮤니티 완료`}
         </p>
       </div>
 
-      {/* 커뮤니티별 진행 상황 */}
       <div className="space-y-2">
-        {job.communities.map((c) => (
+        {progress.map((c) => (
           <div
             key={c.community_id}
             className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-slate-900/70 border border-slate-800"
           >
             <div className="flex items-center gap-3 min-w-0">
-              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
-              <span className="text-sm font-semibold text-slate-100">{c.name}</span>
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ backgroundColor: c.color }}
+              />
+              <span className="text-sm font-semibold text-slate-100 shrink-0">{c.name}</span>
               {c.error && (
                 <span className="text-[11px] text-rose-400 truncate" title={c.error}>
                   {c.error}
@@ -72,7 +76,6 @@ export const SyncProgress: React.FC<Props> = ({ job }) => {
         ))}
       </div>
 
-      {/* 분석 단계 표시 */}
       <div
         className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-sm ${
           isAnalyzing
@@ -86,7 +89,9 @@ export const SyncProgress: React.FC<Props> = ({ job }) => {
           <Sparkles className="w-4 h-4 shrink-0" />
         )}
         <span>
-          {isAnalyzing ? '현안별 커뮤니티 반응을 분석하고 있습니다…' : '수집이 끝나면 분석을 시작합니다.'}
+          {isAnalyzing
+            ? '현안별 커뮤니티 반응을 분석하고 있습니다…'
+            : '수집이 끝나면 분석을 시작합니다.'}
         </span>
       </div>
     </div>

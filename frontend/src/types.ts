@@ -11,22 +11,17 @@ export interface Community {
 }
 
 export interface Post {
-  id: number;
   community_id: string;
   original_id: string;
   title: string;
-  content?: string;
-  author: string;
   url: string;
+  author: string;
   view_count: number;
   vote_count: number;
   comment_count: number;
-  collected_at: string;
 }
 
 export interface Stance {
-  id?: number;
-  issue_id: number;
   community_id: string;
   community_name: string;
   bias: string;
@@ -39,25 +34,21 @@ export interface Stance {
   keywords: string[];
   representative_posts: string[];
   post_count: number;
-  total_votes: number;
-  updated_at: string;
+  total_votes?: number;
 }
 
 export interface Issue {
-  id: number;
   title: string;
   category: string;
   summary: string;
   key_dispute: string;
-  created_at: string;
-  updated_at: string;
   stances: Stance[];
 }
 
-/** 수집 작업의 단계 */
-export type SyncPhase = 'collecting' | 'analyzing' | 'done' | 'error';
+/** 화면 단계 */
+export type Phase = 'idle' | 'collecting' | 'analyzing' | 'report' | 'error';
 
-/** 커뮤니티 하나의 수집 상태 */
+/** 커뮤니티 한 곳의 수집 상태. 서버가 아니라 클라이언트가 요청 결과로 직접 채운다. */
 export interface CommunityProgress {
   community_id: string;
   name: string;
@@ -67,18 +58,10 @@ export interface CommunityProgress {
   error: string | null;
 }
 
-export interface SyncJob {
-  job_id: string;
-  run_id: string;
-  phase: SyncPhase;
-  started_at: string;
-  finished_at: string | null;
-  error: string | null;
-  issue_count: number;
-  total_posts: number;
+export interface AnalyzeResult {
+  issues: Issue[];
   /** 'gemini' 또는 'heuristic' */
-  analysis_method: string | null;
+  analysis_method: string;
   /** 휴리스틱으로 내려간 경우 그 사유 */
-  analysis_note: string | null;
-  communities: CommunityProgress[];
+  analysis_note: string;
 }

@@ -1,8 +1,8 @@
-import { Community, Issue, Post, SyncJob } from '../types';
+import { AnalyzeResult, Community, Post } from '../types';
 
 const API_BASE = '/api';
 
-async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);
   if (!res.ok) {
     let detail = '';
@@ -17,25 +17,23 @@ async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function getCommunities(): Promise<Community[]> {
-  return getJson<Community[]>('/communities');
+  return request<Community[]>('/communities');
 }
 
-/** 지금 이 시각 기준으로 수집을 시작하고 job_id 를 받는다. */
-export function startSync(): Promise<{ job_id: string; already_running: boolean }> {
-  return getJson('/sync', { method: 'POST' });
+/** 커뮤니티 한 곳을 수집한다. 커뮤니티마다 따로 호출해 진행 상황을 개별로 표시한다. */
+export function collectCommunity(
+  communityId: string
+): Promise<{ community_id: string; count: number; posts: Post[] }> {
+  return request(`/collect?community=${encodeURIComponent(communityId)}`);
 }
 
-/** 수집·분석 진행 상황을 조회한다. */
-export function getSyncStatus(jobId: string): Promise<SyncJob> {
-  return getJson<SyncJob>(`/sync/${jobId}`);
-}
-
-/** 해당 실행의 분석 리포트를 가져온다. */
-export function getIssues(runId: string): Promise<{ issues: Issue[]; total: number }> {
-  return getJson(`/issues?run_id=${encodeURIComponent(runId)}`);
-}
-
-/** 해당 실행에서 수집된 원문 게시글 목록을 가져온다. */
-export function getCommunityFeed(runId: string): Promise<{ feed: Record<string, Post[]> }> {
-  return getJson(`/community-feed?run_id=${encodeURIComponent(runId)}`);
+/** 수집한 게시물을 보내 현안 분석을 받는다. 서버는 상태를 보관하지 않는다. */
+export function analyzePosts(
+  postsByCommunity: Record<string, Post[]>
+): Promise<AnalyzeResult> {
+  return request<AnalyzeResult>('/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ posts_by_community: postsByCommunity }),
+  });
 }

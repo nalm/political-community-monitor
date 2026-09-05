@@ -1,132 +1,103 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Community, Issue, Post, SyncJob } from './types';
-import {
-  getCommunities,
-  getCommunityFeed,
-  getIssues,
-  getSyncStatus,
-  startSync,
-} from './services/api';
+import React, { useCallback, useEffect, useState } from 'react';
+import { AnalyzeResult, Community, CommunityProgress, Issue, Phase, Post } from './types';
+import { analyzePosts, collectCommunity, getCommunities } from './services/api';
 import { Header } from './components/Header';
 import { IssueComparisonCard } from './components/IssueComparisonCard';
 import { CommunityFeedModal } from './components/CommunityFeedModal';
 import { SyncProgress } from './components/SyncProgress';
 import { AlertCircle, Flame, RefreshCw, Info } from 'lucide-react';
 
-const POLL_INTERVAL_MS = 1500;
-
 export const App: React.FC = () => {
   const [communities, setCommunities] = useState<Community[]>([]);
-  const [job, setJob] = useState<SyncJob | null>(null);
-  const [issues, setIssues] = useState<Issue[]>([]);
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [progress, setProgress] = useState<CommunityProgress[]>([]);
   const [feed, setFeed] = useState<Record<string, Post[]>>({});
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [result, setResult] = useState<AnalyzeResult | null>(null);
+  const [startedAt, setStartedAt] = useState<Date | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [feedModalOpen, setFeedModalOpen] = useState(false);
-  const [startError, setStartError] = useState<string | null>(null);
-
-  const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
     getCommunities().then(setCommunities).catch(() => setCommunities([]));
-    return () => {
-      if (pollRef.current !== null) window.clearInterval(pollRef.current);
-    };
   }, []);
 
-  const isRunning = job?.phase === 'collecting' || job?.phase === 'analyzing';
-
-  /** 분석까지 끝난 뒤 리포트와 원문 피드를 받아온다. */
-  const loadResults = useCallback(async (runId: string) => {
-    const [issueData, feedData] = await Promise.all([
-      getIssues(runId),
-      getCommunityFeed(runId),
-    ]);
-    setIssues(issueData.issues || []);
-    setFeed(feedData.feed || {});
-  }, []);
-
-  const stopPolling = useCallback(() => {
-    if (pollRef.current !== null) {
-      window.clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }, []);
+  const isRunning = phase === 'collecting' || phase === 'analyzing';
 
   const handleRefresh = useCallback(async () => {
-    if (isRunning) return;
+    if (isRunning || communities.length === 0) return;
 
-    setStartError(null);
+    setError(null);
     setIssues([]);
+    setResult(null);
     setFeed({});
-
-    let jobId: string;
-    try {
-      jobId = (await startSync()).job_id;
-    } catch (err) {
-      setStartError(err instanceof Error ? err.message : '수집을 시작하지 못했습니다.');
-      return;
-    }
-
-    // 폴링 시작 전에 즉시 '수집 중' 상태로 전환해 버튼이 멈춰 보이지 않게 한다.
-    setJob({
-      job_id: jobId,
-      run_id: jobId,
-      phase: 'collecting',
-      started_at: new Date().toISOString(),
-      finished_at: null,
-      error: null,
-      issue_count: 0,
-      total_posts: 0,
-      analysis_method: null,
-      analysis_note: null,
-      communities: communities.map((c) => ({
+    setStartedAt(new Date());
+    setPhase('collecting');
+    setProgress(
+      communities.map((c) => ({
         community_id: c.id,
         name: c.name,
         color: c.color,
-        status: 'pending',
+        status: 'collecting',
         count: 0,
         error: null,
-      })),
-    });
+      }))
+    );
 
-    stopPolling();
-    pollRef.current = window.setInterval(async () => {
-      try {
-        const status = await getSyncStatus(jobId);
-        setJob(status);
-        if (status.phase === 'done') {
-          stopPolling();
-          await loadResults(status.run_id);
-        } else if (status.phase === 'error') {
-          stopPolling();
+    const mark = (id: string, patch: Partial<CommunityProgress>) =>
+      setProgress((prev) => prev.map((p) => (p.community_id === id ? { ...p, ...patch } : p)));
+
+    // 커뮤니티별로 독립 요청. 한 곳이 실패해도 나머지는 그대로 진행된다.
+    const collected: Record<string, Post[]> = {};
+    await Promise.all(
+      communities.map(async (c) => {
+        try {
+          const res = await collectCommunity(c.id);
+          collected[c.id] = res.posts;
+          mark(c.id, { status: 'ok', count: res.count });
+        } catch (err) {
+          mark(c.id, {
+            status: 'error',
+            error: err instanceof Error ? err.message : '수집 실패',
+          });
         }
-      } catch (err) {
-        stopPolling();
-        setStartError(err instanceof Error ? err.message : '진행 상황을 가져오지 못했습니다.');
-      }
-    }, POLL_INTERVAL_MS);
-  }, [communities, isRunning, loadResults, stopPolling]);
+      })
+    );
 
-  const phase = job?.phase;
+    setFeed(collected);
+
+    if (Object.keys(collected).length === 0) {
+      setError('모든 커뮤니티에서 게시물을 수집하지 못했습니다.');
+      setPhase('error');
+      return;
+    }
+
+    setPhase('analyzing');
+    try {
+      const analyzed = await analyzePosts(collected);
+      setResult(analyzed);
+      setIssues(analyzed.issues);
+      setPhase('report');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '분석에 실패했습니다.');
+      setPhase('error');
+    }
+  }, [communities, isRunning]);
+
+  const totalPosts = Object.values(feed).reduce((acc, posts) => acc + posts.length, 0);
 
   return (
     <div className="min-h-screen bg-[#0a0e17] text-slate-100 flex flex-col selection:bg-indigo-500 selection:text-white">
       <Header
         onRefresh={handleRefresh}
-        isSyncing={!!isRunning}
+        isSyncing={isRunning}
         onOpenFeedModal={() => setFeedModalOpen(true)}
-        canOpenFeed={phase === 'done' && Object.keys(feed).length > 0}
+        canOpenFeed={phase === 'report' && totalPosts > 0}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {startError && (
-          <div className="mb-6 px-4 py-3 rounded-xl bg-rose-950/50 border border-rose-800/70 text-rose-200 text-sm flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            {startError}
-          </div>
-        )}
-
         {/* 1) 최초 진입: 타이틀만 */}
-        {!job && (
+        {phase === 'idle' && (
           <section className="flex flex-col items-center justify-center text-center py-28 sm:py-40 space-y-10">
             <h1 className="text-4xl sm:text-6xl font-black text-white tracking-tight">
               무엇이 이슈인가?
@@ -142,14 +113,16 @@ export const App: React.FC = () => {
         )}
 
         {/* 2·3) 수집 중 / 분석 중 */}
-        {(phase === 'collecting' || phase === 'analyzing') && job && <SyncProgress job={job} />}
+        {isRunning && (
+          <SyncProgress phase={phase} progress={progress} totalPosts={totalPosts} />
+        )}
 
         {/* 실패 */}
-        {phase === 'error' && job && (
+        {phase === 'error' && (
           <div className="max-w-2xl mx-auto py-24 text-center space-y-4">
             <AlertCircle className="w-9 h-9 text-rose-500 mx-auto" />
             <h2 className="text-xl font-bold text-white">수집·분석에 실패했습니다</h2>
-            <p className="text-sm text-slate-400">{job.error}</p>
+            <p className="text-sm text-slate-400">{error}</p>
             <button
               onClick={handleRefresh}
               className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition"
@@ -160,7 +133,7 @@ export const App: React.FC = () => {
         )}
 
         {/* 3) 리포트 */}
-        {phase === 'done' && job && (
+        {phase === 'report' && (
           <section className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
@@ -168,17 +141,32 @@ export const App: React.FC = () => {
                 <h2 className="text-lg font-extrabold text-white">현안별 커뮤니티 반응 리포트</h2>
               </div>
               <span className="text-xs text-slate-400">
-                {new Date(job.started_at).toLocaleString('ko-KR')} 기준 · 게시물 {job.total_posts}개 ·
-                현안 {issues.length}건
+                {startedAt?.toLocaleString('ko-KR')} 기준 · 게시물 {totalPosts}개 · 현안{' '}
+                {issues.length}건
               </span>
             </div>
 
-            {job.analysis_method === 'heuristic' && (
+            {/* 일부 커뮤니티가 실패했으면 숨기지 않고 알린다 */}
+            {progress.some((p) => p.status === 'error') && (
+              <div className="px-4 py-3 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-200 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>
+                  수집 실패:{' '}
+                  {progress
+                    .filter((p) => p.status === 'error')
+                    .map((p) => p.name)
+                    .join(', ')}
+                  . 이 커뮤니티는 리포트에서 빠져 있습니다.
+                </span>
+              </div>
+            )}
+
+            {result?.analysis_method === 'heuristic' && (
               <div className="px-4 py-3 rounded-xl bg-amber-950/40 border border-amber-800/60 text-amber-200 text-xs flex items-start gap-2">
                 <Info className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>
                   AI 분석을 사용하지 못해 제목 빈도·반응 수치 기반 자동 집계로 대체했습니다.
-                  {job.analysis_note ? ` (${job.analysis_note})` : ''}
+                  {result.analysis_note ? ` (${result.analysis_note})` : ''}
                 </span>
               </div>
             )}
@@ -189,8 +177,8 @@ export const App: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-6">
-                {issues.map((issue) => (
-                  <IssueComparisonCard key={issue.id} issue={issue} />
+                {issues.map((issue, idx) => (
+                  <IssueComparisonCard key={`${issue.title}-${idx}`} issue={issue} />
                 ))}
               </div>
             )}

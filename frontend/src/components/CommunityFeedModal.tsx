@@ -86,7 +86,7 @@ export const CommunityFeedModal: React.FC<Props> = ({ isOpen, onClose, communiti
           ) : (
             currentPosts.map((post, idx) => (
               <div
-                key={post.id || post.url || idx}
+                key={post.url || idx}
                 className="flex items-center justify-between gap-4 p-3.5 rounded-xl bg-slate-800/40 border border-slate-700/60 hover:border-slate-500 transition hover:bg-slate-800/70"
               >
                 <div className="flex items-start gap-3 min-w-0">

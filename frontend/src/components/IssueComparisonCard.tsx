@@ -35,7 +35,7 @@ export const IssueComparisonCard: React.FC<Props> = ({ issue }) => {
               {issue.category || '정치/시사'}
             </span>
             <span className="text-xs text-slate-400">
-              분석 시점: {new Date(issue.updated_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+              커뮤니티 {issue.stances.length}곳 비교
             </span>
           </div>
           <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
