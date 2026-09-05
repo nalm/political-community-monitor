@@ -16,25 +16,17 @@ else:
 
 # 모니터링 대상 커뮤니티 인기 게시판 URL
 #
-# 에펨코리아와 다모앙은 수집 대상에서 제외되었습니다.
+# 아래 세 곳은 수집 대상에서 제외되었습니다. 모두 인프라 레벨에서 자동 수집을
+# 거부하므로 우회하지 않습니다.
 #   - 에펨코리아: robots.txt가 `User-agent: *` 에 대해 `Disallow: /` 이며
 #     허용 경로는 /$, /best, /best2, /humor 뿐입니다. /politics 는 모든 봇에
 #     명시적으로 금지되어 있고, 자체 "보안 시스템"이 HTTP 430 으로 차단합니다.
 #   - 다모앙: robots.txt 는 허용하지만 Cloudflare Turnstile 챌린지가 걸려 있고,
 #     공식 RSS(/rss)에는 공감게시판(/empathy) 글이 포함되지 않습니다.
-# 두 사이트 모두 명시적인 봇 차단 의사를 밝혔으므로 우회하지 않습니다.
+#   - 잇싸: 데이터센터 IP 를 HTTP 403 으로 차단합니다. 함수 리전을 서울(icn1)로
+#     옮겨도 동일해(해외 IP 가 아니라 클라우드 IP 자체를 차단) 배포 환경에서는
+#     수집이 불가능했습니다.
 COMMUNITIES = {
-    "itssa": {
-        "id": "itssa",
-        "name": "잇싸 (ITSSA)",
-        "section": "정치 HOT",
-        "base_url": "https://itssa.co.kr",
-        "list_url": "https://itssa.co.kr/hot_politics",
-        "bias": "친민주·친이재명/이동형",
-        "demographic": "3050 고관여 진보",
-        "color": "#8B5CF6",
-        "tag": "진보 / 잇싸"
-    },
     "bobaedream": {
         "id": "bobaedream",
         "name": "보배드림",

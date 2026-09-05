@@ -15,7 +15,7 @@ export const IssueComparisonCard: React.FC<Props> = ({ issue }) => {
   const filteredStances = issue.stances.filter(s => {
     if (selectedFilter === 'mentioned') return s.post_count > 0;
     if (selectedFilter === 'progressive') {
-      return ['bobaedream', 'ddanzi', 'itssa'].includes(s.community_id);
+      return ['bobaedream', 'ddanzi'].includes(s.community_id);
     }
     if (selectedFilter === 'neutral_female') {
       return s.community_id === 'theqoo';
@@ -104,7 +104,7 @@ export const IssueComparisonCard: React.FC<Props> = ({ issue }) => {
                     : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                 }`}
               >
-                진보/팬덤 (잇싸·보배·딴지)
+                진보 (보배·딴지)
               </button>
               <button
                 onClick={() => setSelectedFilter('neutral_female')}

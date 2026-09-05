@@ -10,18 +10,12 @@ interface Props {
 export const CommunityBadge: React.FC<Props> = ({ communityId, name, tag, className = '' }) => {
   const getBadgeStyle = (id: string) => {
     switch (id) {
-      case 'fmkorea':
-        return 'bg-blue-900/60 text-blue-300 border-blue-700/80';
       case 'bobaedream':
         return 'bg-emerald-900/60 text-emerald-300 border-emerald-700/80';
       case 'theqoo':
         return 'bg-pink-900/60 text-pink-300 border-pink-700/80';
-      case 'damoang':
-        return 'bg-indigo-900/60 text-indigo-300 border-indigo-700/80';
       case 'ddanzi':
         return 'bg-amber-900/60 text-amber-300 border-amber-700/80';
-      case 'itssa':
-        return 'bg-purple-900/60 text-purple-300 border-purple-700/80';
       default:
         return 'bg-slate-800 text-slate-300 border-slate-700';
     }

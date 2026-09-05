@@ -11,7 +11,7 @@ interface Props {
 }
 
 export const CommunityFeedModal: React.FC<Props> = ({ isOpen, onClose, communities, feed }) => {
-  const [activeCommunityId, setActiveCommunityId] = useState<string>(communities[0]?.id || 'itssa');
+  const [activeCommunityId, setActiveCommunityId] = useState<string>(communities[0]?.id || 'bobaedream');
 
   if (!isOpen) return null;
 

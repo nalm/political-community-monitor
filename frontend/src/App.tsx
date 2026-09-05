@@ -187,7 +187,7 @@ export const App: React.FC = () => {
       </main>
 
       <footer className="mt-16 border-t border-slate-800/80 bg-slate-950 py-6 text-center text-xs text-slate-500">
-        <p>정치·시사 커뮤니티 여론 모니터링 · 잇싸 · 보배드림 · 더쿠 · 딴지일보</p>
+        <p>정치·시사 커뮤니티 여론 모니터링 · 보배드림 · 더쿠 · 딴지일보</p>
       </footer>
 
       <CommunityFeedModal

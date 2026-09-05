@@ -24,7 +24,7 @@ POSTS_PER_COMMUNITY = 30
 
 app = FastAPI(
     title="Political Community Monitor API",
-    description="시사·정치 커뮤니티(잇싸, 보배드림, 더쿠, 딴지일보) 여론 모니터링",
+    description="시사·정치 커뮤니티(보배드림, 더쿠, 딴지일보) 여론 모니터링",
     version="3.0.0",
 )
 
