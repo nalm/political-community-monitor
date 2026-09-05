@@ -24,6 +24,10 @@ METHOD_HEURISTIC = "heuristic"
 
 MODEL = "claude-opus-4-8"
 
+# 품질·지연 조절 손잡이. high 기준 4개 커뮤니티 × 18개 게시물에 약 47초 걸린다.
+# 지연이 문제면 medium 으로 낮춘다.
+EFFORT = "high"
+
 # 프롬프트에 넣을 커뮤니티당 게시물 수 (수집 자체는 30개를 모두 보관한다)
 PROMPT_POSTS_PER_COMMUNITY = 18
 
@@ -163,8 +167,7 @@ class LLMAnalyzer:
             system=SYSTEM_PROMPT,
             thinking={"type": "adaptive"},
             output_config={
-                # effort 는 품질·지연 조절 손잡이다. 지연이 문제면 medium 으로 낮춘다.
-                "effort": "high",
+                "effort": EFFORT,
                 "format": {"type": "json_schema", "schema": _issues_schema(community_ids)},
             },
             messages=[{"role": "user", "content": prompt}],
