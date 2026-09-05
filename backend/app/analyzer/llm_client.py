@@ -182,15 +182,27 @@ class LLMAnalyzer:
             return []
 
         issues = json.loads(text).get("issues", [])
-        return self._drop_unknown_communities(issues, set(community_ids))
+        return self._normalize_stances(issues, set(community_ids))
 
     @staticmethod
-    def _drop_unknown_communities(
+    def _normalize_stances(
         issues: List[Dict[str, Any]], valid: set
     ) -> List[Dict[str, Any]]:
-        """스키마 enum 을 우회해 들어온 커뮤니티 id 가 있으면 걸러낸다."""
+        """스탠스 목록을 커뮤니티당 하나로 정리한다.
+
+        스키마의 enum 은 값의 범위만 제한할 뿐 중복까지 막지는 못한다. 실제로 같은
+        커뮤니티에 스탠스가 두 번 실려 오는 경우가 있었고, 프론트가 community_id 를
+        렌더링 key 로 쓰기 때문에 그대로 두면 카드가 중복 표시된다.
+        중복되면 실제로 글을 근거로 든 쪽(post_count 가 큰 쪽)을 남긴다.
+        """
         for issue in issues:
-            issue["stances"] = [
-                s for s in issue.get("stances", []) if s.get("community_id") in valid
-            ]
+            best: Dict[str, Dict[str, Any]] = {}
+            for stance in issue.get("stances", []):
+                cid = stance.get("community_id")
+                if cid not in valid:
+                    continue
+                current = best.get(cid)
+                if current is None or stance.get("post_count", 0) > current.get("post_count", 0):
+                    best[cid] = stance
+            issue["stances"] = list(best.values())
         return [i for i in issues if i.get("stances")]
