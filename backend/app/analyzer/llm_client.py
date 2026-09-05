@@ -24,11 +24,13 @@ class LLMAnalyzer:
         수집된 각 커뮤니티의 30개 인기 게시물들을 실시간 Gemini AI에 전달하여,
         실제 인기글 데이터에 기반한 현안(Issue)과 커뮤니티별 스탠스를 도출.
         """
+        import asyncio
         if self.is_available():
             try:
-                return await self._call_gemini_analysis(posts_by_community)
+                # 15초 타임아웃 적용 (Vercel 서버리스 환경 고려)
+                return await asyncio.wait_for(self._call_gemini_analysis(posts_by_community), timeout=15.0)
             except Exception as e:
-                print(f"[LLMAnalyzer] Gemini API call error: {e}. Falling back to heuristic engine.")
+                print(f"[LLMAnalyzer] Gemini API call error/timeout: {e}. Falling back to real-post heuristic engine.")
 
         return self._heuristic_analysis(posts_by_community)
 
@@ -36,8 +38,8 @@ class LLMAnalyzer:
         context_lines = []
         for comm_id, posts in posts_by_community.items():
             context_lines.append(f"\n### [커뮤니티: {comm_id} (실시간 인기글 {len(posts)}개)]")
-            for idx, p in enumerate(posts[:20], 1):
-                context_lines.append(f"{idx}. {p['title']} (추천 {p.get('vote_count',0)}, 댓글 {p.get('comment_count',0)})")
+            for idx, p in enumerate(posts[:12], 1):
+                context_lines.append(f"{idx}. {p['title']}")
 
         prompt = f"""
 당신은 대한민국 온라인 커뮤니티 및 정치·시사 여론 분석 전문 AI입니다.

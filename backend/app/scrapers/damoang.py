@@ -13,27 +13,34 @@ class DamoangScraper(BaseScraper):
     async def fetch_hot_posts(self, limit: int = 30) -> List[Dict[str, Any]]:
         posts = []
         try:
+            headers = self.get_headers()
+            headers["Referer"] = "https://damoang.net/"
+            headers["Sec-Fetch-Site"] = "same-origin"
             async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-                r = await client.get(self.list_url, headers=self.get_headers())
+                r = await client.get(self.list_url, headers=headers)
                 if r.status_code == 200:
                     soup = BeautifulSoup(r.text, "html.parser")
-                    for a in soup.select(".list_item a, .title a, td.subject a, a"):
+                    seen_ids = set()
+                    for a in soup.select("ul.list-group li a, .list_item a, .title a, td.subject a, a"):
                         href = a.get("href", "")
                         if not href or "#" in href:
                             continue
-                        title = self.clean_text(a.get_text())
-                        if not title or len(title) < 2:
-                            continue
                         cid = href.split("?")[0].split("/")[-1]
-                        if not cid.isdigit():
+                        if not cid.isdigit() or cid in seen_ids:
                             continue
+                        
+                        raw_title = self.clean_text(a.get_text())
+                        if not raw_title or len(raw_title) < 2 or "공지" in raw_title:
+                            continue
+                        
+                        seen_ids.add(cid)
                         full_url = href if href.startswith("http") else self.base_url + href
                         posts.append({
                             "community_id": self.community_id,
                             "original_id": cid,
-                            "title": title,
+                            "title": raw_title,
                             "url": full_url,
-                            "author": "다모앙앙버터",
+                            "author": "다모앙유저",
                             "view_count": 5200,
                             "vote_count": 48,
                             "comment_count": 22

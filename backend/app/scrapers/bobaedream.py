@@ -16,7 +16,7 @@ class BobaedreamScraper(BaseScraper):
             async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
                 page = 1
                 seen_urls = set()
-                while len(posts) < limit and page <= 2:
+                while len(posts) < limit and page <= 3:
                     url = f"{self.list_url}&page={page}" if page > 1 else self.list_url
                     r = await client.get(url, headers=self.get_headers())
                     if r.status_code != 200:
@@ -24,6 +24,15 @@ class BobaedreamScraper(BaseScraper):
                     soup = BeautifulSoup(r.text, "html.parser")
 
                     for tr in soup.select("table.clistTable tbody tr, tbody tr"):
+                        # 공지 행 필터링
+                        tr_class = str(tr.get("class", []))
+                        if "notice" in tr_class:
+                            continue
+                        
+                        num_td = tr.select_one("td.number, td:nth-child(1)")
+                        if num_td and ("공지" in num_td.get_text() or "best" in num_td.get_text().lower()):
+                            continue
+
                         tds = tr.find_all("td")
                         if len(tds) < 5:
                             continue
@@ -36,9 +45,10 @@ class BobaedreamScraper(BaseScraper):
                             continue
                         if "view?code=politic" not in href and "code=politic" not in href:
                             continue
-                        seen_urls.add(href)
 
                         raw_title = self.clean_text(a.get_text())
+                        if "공지" in raw_title:
+                            continue
                         # 댓글수 추출 (예: (10))
                         cmt_count = 0
                         cmt_match = re.search(r'\((\d+)\)$', raw_title)

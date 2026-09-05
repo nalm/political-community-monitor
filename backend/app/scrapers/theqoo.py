@@ -16,7 +16,7 @@ class TheqooScraper(BaseScraper):
             async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
                 page = 1
                 seen_ids = set()
-                while len(posts) < limit and page <= 3:
+                while len(posts) < limit and page <= 4:
                     url = f"{self.list_url}&page={page}" if page > 1 else self.list_url
                     r = await client.get(url, headers=self.get_headers())
                     if r.status_code != 200:
@@ -24,16 +24,27 @@ class TheqooScraper(BaseScraper):
                     soup = BeautifulSoup(r.text, "html.parser")
 
                     for tr in soup.select("table tbody tr, .show_normal tbody tr"):
-                        if "notice" in str(tr.get("class", [])):
+                        tr_class = str(tr.get("class", []))
+                        if "notice" in tr_class or "notice_expand" in tr_class:
                             continue
+                        
+                        # 번호 영역이 '공지'인 경우 제외
+                        num_el = tr.select_one("td.m_no, td:nth-child(1)")
+                        if num_el and ("공지" in num_el.get_text() or "notice" in num_el.get_text().lower()):
+                            continue
+
                         a = tr.select_one("td.title a")
                         if not a:
                             continue
                         href = a.get("href", "")
-                        if not href or "#" in href or "/event/" in href:
+                        if not href or "#" in href or "/event/" in href or "/notice/" in href:
                             continue
                         title = self.clean_text(a.get_text())
-                        if not title or len(title) < 2 or "공지" in title:
+                        if not title or len(title) < 2:
+                            continue
+                        
+                        # 공지 및 필독 키워드 차단
+                        if any(kw in title for kw in ["공지", "필독", "이용 규칙", "보안 강화", "비밀번호 변경", "카테고리 추가"]):
                             continue
 
                         cid = href.split("?")[0].split("/")[-1]
